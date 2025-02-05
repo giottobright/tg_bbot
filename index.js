@@ -1,87 +1,86 @@
 const TelegramBot = require('node-telegram-bot-api');
 const express = require('express');
 const cors = require('cors');
+const crypto = require('crypto');
 
+const token = '8175016977:AAGeuLppm_BrhTAOScFC3fzQ-mRh61VBIyo';
+const webAppUrl = 'https://lovedaily.netlify.app/';
 
-const token = '7450002060:AAH5_zeOV1dnWjO8d1Lz1xPLhgVIcTcIgWU';
-const webAppUrl = 'https://main--melodious-smakager-19f895.netlify.app/';
-
-// Create a bot that uses 'polling' to fetch new updates
 const bot = new TelegramBot(token, {polling: true});
 const app = express();
 
-app.use(express.json())
-app.use(cors())
+app.use(express.json());
+app.use(cors());
+
+function createInitData(user) {
+    const data = {
+        user: {
+            id: user.id,
+            first_name: user.first_name,
+            last_name: user.last_name,
+            username: user.username
+        },
+        auth_date: Math.floor(Date.now() / 1000),
+        query_id: crypto.randomBytes(8).toString('hex'),
+    };
+    
+    const dataCheckString = Object.keys(data)
+        .sort()
+        .map(key => `${key}=${JSON.stringify(data[key])}`)
+        .join('\n');
+    
+    const secretKey = crypto.createHmac('sha256', 'WebAppData')
+        .update(token)
+        .digest();
+    
+    const hash = crypto.createHmac('sha256', secretKey)
+        .update(dataCheckString)
+        .digest('hex');
+    
+    return { ...data, hash };
+}
 
 bot.on('message', async (msg) => {
-  const chatId = msg.chat.id;
-  const text = msg.text;
+    const chatId = msg.chat.id;
+    const text = msg.text;
+    console.log('User data:', msg.from);
 
-  if(text === '/start'){
-    await bot.sendMessage(chatId, 'Ниже появится форма для заполнения', {
-        reply_markup: {
-            keyboard: [
-                [{text: 'Заполнить форму', web_app: {url: webAppUrl + 'form'}}]
-            ]
-        }
-    })
-
-
-    await bot.sendMessage(chatId, 'Ниже появится форма для заполнения', {
-        reply_markup: {
-            inline_keyboard: [
-                [{text: 'Сделать заказ', web_app: {url: webAppUrl}}]
-            ]
-        }
-    })
-  }
-
-  if(msg?.web_app_data?.data) {
-    try {
-        const data = JSON.parse(msg?.web_app_data?.data)
-
-        await bot.sendMessage(chatId, "Спасибо за обратную связь")
-        await bot.sendMessage(chatId, "Ваша страна" + data?.country)
-
-        setTimeout( async ()  =>  {
-            await bot.sendMessage("Всю информацию вы получите в этом чате")
-        }, 3000)
-    } catch(e) {
-        console.log(e);
-  }}
-
-  // send a message to the chat acknowledging receipt of their message
-
-});
-
-app.post('/web-data', (req, res)=> {
-    const {queryId, products, totalPrice} = req.body;
-
-    try {
-        bot.answerWebAppQuery(queryId, {
-            type: 'article',
-            id: queryId,
-            title: 'Успешная покупка',
-            input_message_content: {message_text: 'Поздравляю с покупкой'}
+    if(text === '/start') {
+        const initData = createInitData(msg.from);
+        const webAppUrlWithData = `${webAppUrl}?tgWebAppData=${encodeURIComponent(JSON.stringify(initData))}`;
+        console.log('Generated URL:', webAppUrlWithData);
+        
+        await bot.sendMessage(chatId, 'Твори любовь❤️', {
+            reply_markup: {
+                inline_keyboard: [
+                    [{
+                        text: 'Перейти в приложение',
+                        web_app: {
+                            url: webAppUrlWithData
+                        }
+                    }]
+                ]
+            }
         });
-
-        return res.status(200);
-    } catch (e) {
-        bot.answerWebAppQuery(queryId, {
-            type: 'article',
-            id: queryId,
-            title: 'Не удалось приобрести',
-            input_message_content: {message_text: 'Не удалось приобрести товар'}
-        });
-
-        return res.status(500).json({});
     }
 
+    if(msg?.web_app_data?.data) {
+        try {
+            const data = JSON.parse(msg?.web_app_data?.data);
+            await bot.sendMessage(chatId, "Спасибо за обратную связь");
+            await bot.sendMessage(chatId, "Ваша страна: " + data?.country);
+            
+            setTimeout(async () => {
+                await bot.sendMessage(chatId, "Всю информацию вы получите в этом чате");
+            }, 3000);
+        } catch(e) {
+            console.log(e);
+        }
+    }
+});
 
-})
-
-const PORT = 3000;
-app.listen(PORT, () =>  console.log(`Server is running on port ${PORT}`));
+const PORT = 8007;
+app.listen(PORT, () => console.log('Server started on PORT ' + PORT));
 
 
 
