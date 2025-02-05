@@ -6,14 +6,24 @@ const serverless = require('serverless-http');
 
 // Используем токен из переменных окружения
 const token = process.env.BOT_TOKEN;
+if (!token) {
+  console.error('BOT_TOKEN не задан! Проверьте переменные окружения.');
+}
+
 const webAppUrl = 'https://lovedaily.netlify.app/';
 
-// Создаем экземпляр бота в webhook-режиме (вместо polling)
+// Создаем экземпляр бота в webhook-режиме
 const bot = new TelegramBot(token, { webHook: true });
 
-// Настраиваем webhook — URL должен указывать на серверлес-функцию
+// Настраиваем webhook — из переменной окружения или по умолчанию
 const webhookUrl = process.env.WEBHOOK_URL || 'https://lovedailybot.netlify.app/.netlify/functions/index';
-bot.setWebHook(webhookUrl);
+console.log('Используется webhookUrl:', webhookUrl);
+
+bot.setWebHook(webhookUrl).then(() => {
+  console.log('WebHook успешно установлен');
+}).catch(err => {
+  console.error('Ошибка при установке WebHook:', err);
+});
 
 function createInitData(user) {
   const data = {
@@ -43,27 +53,32 @@ function createInitData(user) {
   return { ...data, hash };
 }
 
-// Обработка входящих сообщений (логика остается такой же, как и в вашем index.js)
+// Обработка входящих сообщений (логика аналогична оригинальной)
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
-  console.log('User data:', msg.from);
+  console.log('Получено сообщение:', msg);
 
   if (text === '/start') {
     const initData = createInitData(msg.from);
     const webAppUrlWithData = `${webAppUrl}?tgWebAppData=${encodeURIComponent(JSON.stringify(initData))}`;
-    console.log('Generated URL:', webAppUrlWithData);
-
-    await bot.sendMessage(chatId, 'Твори любовь❤️', {
-      reply_markup: {
-        inline_keyboard: [
-          [{
-            text: 'Перейти в приложение',
-            web_app: { url: webAppUrlWithData }
-          }]
-        ]
-      }
-    });
+    console.log('Сгенерированный URL:', webAppUrlWithData);
+    
+    try {
+      await bot.sendMessage(chatId, 'Твори любовь❤️', {
+        reply_markup: {
+          inline_keyboard: [
+            [{
+              text: 'Перейти в приложение',
+              web_app: { url: webAppUrlWithData }
+            }]
+          ]
+        }
+      });
+      console.log('Сообщение отправлено');
+    } catch (err) {
+      console.error('Ошибка при отправке сообщения:', err);
+    }
   }
 
   if (msg?.web_app_data?.data) {
@@ -75,21 +90,23 @@ bot.on('message', async (msg) => {
       setTimeout(async () => {
         await bot.sendMessage(chatId, "Всю информацию вы получите в этом чате");
       }, 3000);
-    } catch(e) {
-      console.log(e);
+    } catch (e) {
+      console.error('Ошибка при обработке данных web_app_data:', e);
     }
   }
 });
 
-// Создаем express-приложение, которое будет вызываться как серверлес-функция
+// Создаем express-приложение, которое будет обслуживать запросы от Telegram
 const app = express();
 app.use(express.json());
 app.use(cors());
 
-// Обработка POST-запросов от Telegram (webhook)
+// Логируем входящие запросы для отладки
 app.post('/', async (req, res) => {
+  console.log('Получен запрос:', req.method);
+  console.log('Тело запроса:', req.body);
+
   try {
-    // Передаем обновление от Telegram в бот
     await bot.processUpdate(req.body);
     res.sendStatus(200);
   } catch (error) {
@@ -98,5 +115,5 @@ app.post('/', async (req, res) => {
   }
 });
 
-// Экспортируем обработчик Netlify Functions
+// Экспортируем обработчик для Netlify Functions
 module.exports.handler = serverless(app);
